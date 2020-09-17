@@ -192,6 +192,7 @@ class Sed:
             if prev_command.function != 'D':
                 self.PS = self.readline()
 
+        self.reader.close()
         return self.output_lines
 
     def match(self, address):
@@ -216,7 +217,7 @@ class Reader:
 
     def open(self, source_file, need_last_line=False):
         try:
-            if source_file == sys.stdin:
+            if source_file is None:
                 self.input_file = sys.stdin
             else:
                 if sys.version_info[0] == 2:
@@ -231,6 +232,11 @@ class Reader:
         self.line = ''
         self.line_number = 0
         self.line_reader = LineReader.factory(self.input_file, need_last_line)
+
+    def close(self):
+        if self.input_file is not None:
+            self.input_file.close()
+            self.input_file = None
 
     def getline(self):
         self.line = self.line_reader.readline()
@@ -1398,8 +1404,8 @@ def do_helphtml():
 
 USAGE = """
 sed.py -h | -H | -v
-       [-n][-r] -f <file> <text file>
-       [-n][-r] -e <string> <text file>
+       [-n][-r][-i] -f <file> <text file>
+       [-n][-r][-i] -e <string> <text file>
 """
 
 def parse_command_line():
@@ -1412,8 +1418,9 @@ def parse_command_line():
     parser.add_argument("-e", help="script in string", action="store", dest="script_string", metavar='string')
     parser.add_argument("-n", help="print only if requested", action="store_true", dest="no_autoprint")
     parser.add_argument("-r", help="regexp extended", action="store_true", dest="regexp_extended")
+    parser.add_argument("-i", help="edit file in place", action="store_true", dest="edit_inplace")
     parser.add_argument("-d", help=argparse.SUPPRESS, action="store_true", dest="dump_script")
-    parser.add_argument("target", nargs='?', help=argparse.SUPPRESS, default=sys.stdin)
+    parser.add_argument("target", nargs='?', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     return parser, args
@@ -1443,10 +1450,20 @@ def main():
         else:
             raise SedException('too few arguments')
 
+        if args.edit_inplace and args.target is None:
+            raise SedException('no file to edit in place')
+
         if args.dump_script:
             sed.dump_script()
 
-        sed.apply(args.target)
+        if args.edit_inplace:
+            tmp = '.'+args.target
+            with open(tmp, 'x') as output:
+                sed.apply(args.target, output)
+            os.replace(tmp, args.target)
+        else:
+            sed.apply(args.target)
+
         sys.exit(0)
 
     except SedException as e:
